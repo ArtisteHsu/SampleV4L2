@@ -303,7 +303,11 @@ void dumpFormat(struct v4l2_format format) {
 	printf("    type: %d\n", format.type);
 	printf("    fmt.pix.width: %d\n", format.fmt.pix.width);
 	printf("    fmt.pix.height: %d\n", format.fmt.pix.height);
-	printf("    fmt.pix.pixelformat: %d\n", format.fmt.pix.pixelformat);
+	printf("    fmt.pix.pixelformat: %c%c%c%c (0x%X)\n", (char)format.fmt.pix.pixelformat,
+					((char)(format.fmt.pix.pixelformat >> 8)),
+					(char)(format.fmt.pix.pixelformat >> 16),
+					(char)(format.fmt.pix.pixelformat >> 24),
+					format.fmt.pix.pixelformat);
 	printf("    fmt.pix.field: %d\n", format.fmt.pix.field);
 	printf("    fmt.pix.bytesperline: %d\n", format.fmt.pix.bytesperline);
 	printf("    fmt.pix.sizeimage: %d\n", format.fmt.pix.sizeimage);
