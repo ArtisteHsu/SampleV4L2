@@ -10,7 +10,7 @@ Access V4L2 device by following steps:
  7. Queue video buffer and get one frame
  8. Turn on video streaming
  9. Dequeue video buffer
- 10. Process video buffer
+ 10. Process video buffer (Save JPEG file)
  11. Turn off video streaming
  12. Unmap buffer
  13. Close device
@@ -20,3 +20,10 @@ Access V4L2 device by following steps:
 (Step 5~7 are allocating video buffer)
 
 (Step 9 is where video image come)
+
+How to build (Ubuntu 14.04 LTS)
+ 
+     $ sudo apt-get install libjpeg-dev
+     $ git clone https://github.com/ArtisteHsu/SampleV4L2.git
+     $ cd SampleV4L2
+     $ gcc samplev4l2.c -ljpeg -o samplev4l2
