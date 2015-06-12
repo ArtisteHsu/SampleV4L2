@@ -10,6 +10,8 @@
 
 #include <linux/videodev2.h>
 
+#include <jpeglib.h>
+
 //
 // Sample V4L2
 // 
@@ -29,15 +31,21 @@
 // 7. Queue video buffer and get one frame
 // 8. Turn on video streaming
 // 9. Dequeue video buffer
-// 10.Process video buffer
+// 10.Process video buffer (write jpeg file)
 // 11.Turn off video streaming
 // 12.Unmap buffer
 // 13.Close device
 //
+// How to build (Ubuntu 14.04 LTS)
+// $ sudo apt-get install libjpeg-dev
+// $ git clone https://github.com/ArtisteHsu/SampleV4L2.git
+// $ cd SampleV4L2
+// $ gcc samplev4l2.c -ljpeg -o samplev4l2
 
 void dumpCapabilities(struct v4l2_capability cap);
 void dumpCropCapabilities(struct v4l2_cropcap cropcap);
 void dumpFormat(struct v4l2_format format);
+void jpegWrite();
 
 int main() {
 	char *dev_name = "/dev/video0";
@@ -156,7 +164,8 @@ V4L2_DEQUEUE:
 	}
 
 	// Step 10. Process video buffer
-	printf("video = %d\n", *(int*)bufferStart);
+	jpegWrite((char*)bufferStart, format.fmt.pix.width, format.fmt.pix.height,
+			format.fmt.pix.pixelformat, format.fmt.pix.bytesperline);
 
 	// Step 11.Turn off video streaming
 	type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -314,6 +323,89 @@ void dumpFormat(struct v4l2_format format) {
 	printf("    fmt.pix.colorspace: %s (%d)\n", getStringColorSpace(format.fmt.pix.colorspace),
 					format.fmt.pix.colorspace);
 	printf("    fmt.pix.priv: %d\n", format.fmt.pix.priv);
+}
+
+//
+// Refer to http://apodeline.free.fr/DOC/libjpeg/libjpeg-2.html
+// Refer to http://paulbourke.net/dataformats/yuv/
+//
+void jpegWrite(char *imageBuffer, int imageWidth, int imageHeight, int fourccPixelFormat, int bytesPerLine) {
+	const char *fileName = "v4l2_frame.jpg";
+	FILE *outfile;
+	struct jpeg_compress_struct cinfo;
+	struct jpeg_error_mgr jerr;
+	JSAMPROW row_pointer[1];
+	int i, j;
+	char y1, y2, u, v;
+	char *rgbLineBuffer;
+
+	if (fourccPixelFormat != V4L2_PIX_FMT_YUYV) {
+		printf("Error: jpeg writer support YUYV only but input is %c%c%c%c\n", 
+					(char)fourccPixelFormat,
+					(char)(fourccPixelFormat >> 8),
+					(char)(fourccPixelFormat >> 16),
+					(char)(fourccPixelFormat >> 24));
+		return;
+	}
+
+	if (imageWidth % 2) {
+		printf("Error: image width must be even but image width is %d\n", imageWidth);
+		return;
+	}
+
+	// Allocate RGB buffer, 3 bytes per pixel.
+	rgbLineBuffer = malloc(cinfo.image_width * 3);
+	if (rgbLineBuffer == NULL) {
+		printf("Error: allocate rgb buffer fails\n");
+		return;
+	}
+
+	outfile = fopen(fileName, "wb");
+	if (outfile == NULL) {
+		printf("Error: cannot create jpeg file\n");
+		return;
+	}
+
+	cinfo.err = jpeg_std_error(&jerr);
+	jpeg_create_compress(&cinfo);
+	jpeg_stdio_dest(&cinfo, outfile);
+
+	cinfo.image_width = imageWidth;
+	cinfo.image_height = imageHeight;
+	cinfo.input_components = 3;
+	cinfo.in_color_space = JCS_RGB;
+	jpeg_set_defaults(&cinfo);
+	jpeg_set_quality(&cinfo, 90, TRUE);
+	jpeg_start_compress(&cinfo, TRUE);
+
+	// Convert YUYV to RGB and write to JPEG file line by line
+	row_pointer[0] = rgbLineBuffer;
+	for (i = 0; i < cinfo.image_height; i++) {
+		for (j = 0; j < cinfo.image_width; j += 2) {
+			// Convert 2 pixels
+			y1 = imageBuffer[(i * bytesPerLine) + (j * 2) + 0];
+			u  = imageBuffer[(i * bytesPerLine) + (j * 2) + 1];
+			y2 = imageBuffer[(i * bytesPerLine) + (j * 2) + 2];
+			v  = imageBuffer[(i * bytesPerLine) + (j * 2) + 3];
+			u -= 128;
+			v -= 128;
+			// RGB for 1st pixel
+			rgbLineBuffer[j*3]     = y1 + (1.370705f * v);
+			rgbLineBuffer[(j*3)+1] = y1 - (0.698001f * v) - (0.337633f * u);
+			rgbLineBuffer[(j*3)+2] = y1 + (1.732446 * u);
+			// RGB for 2nd pixel
+			rgbLineBuffer[(j*3)+3] = y2 + (1.370705f * v);
+			rgbLineBuffer[(j*3)+4] = y2 - (0.698001f * v) - (0.337633f * u);
+			rgbLineBuffer[(j*3)+5] = y2 + (1.732446 * u);
+		}
+		jpeg_write_scanlines(&cinfo, row_pointer, 1);
+	}
+	free(rgbLineBuffer);
+
+	jpeg_finish_compress(&cinfo);
+	jpeg_destroy_compress(&cinfo);
+	fclose(outfile);
+	return;
 }
 
 
