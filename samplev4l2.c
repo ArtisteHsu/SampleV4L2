@@ -45,18 +45,18 @@
 void dumpCapabilities(struct v4l2_capability cap);
 void dumpCropCapabilities(struct v4l2_cropcap cropcap);
 void dumpFormat(struct v4l2_format format);
-void jpegWrite();
+void jpegWrite(char *imageBuffer, int imageWidth, int imageHeight, int fourccPixelFormat, int bytesPerLine);
 
 int main() {
 	char *dev_name = "/dev/video0";
 	int fd;
-	struct v4l2_capability cap;
-	struct v4l2_cropcap cropcap;
-	struct v4l2_format format;
-	struct v4l2_requestbuffers reqBuffers;
-	struct v4l2_buffer buffer;
-	void *bufferStart;
-	unsigned int bufferLength;
+	struct v4l2_capability cap = {0};
+	struct v4l2_cropcap cropcap = {0};
+	struct v4l2_format format = {0};
+	struct v4l2_requestbuffers reqBuffers = {0};
+	struct v4l2_buffer buffer = {0};
+	void *bufferStart = MAP_FAILED;
+	unsigned int bufferLength = 0;
 	enum v4l2_buf_type type;
 	int ret;
  
@@ -255,9 +255,6 @@ void dumpCapabilities(struct v4l2_capability cap) {
 	if (cap.capabilities & V4L2_CAP_STREAMING) {
 		printf("        V4L2_CAP_STREAMING (0x%08X)\n", V4L2_CAP_STREAMING);
 	}
-	if (cap.capabilities & V4L2_CAP_READWRITE) {
-		printf("        V4L2_CAP_READWRITE (0x%08X)\n", V4L2_CAP_READWRITE);
-	}
 }
 
 
@@ -335,9 +332,10 @@ void jpegWrite(char *imageBuffer, int imageWidth, int imageHeight, int fourccPix
 	struct jpeg_compress_struct cinfo;
 	struct jpeg_error_mgr jerr;
 	JSAMPROW row_pointer[1];
-	int i, j;
-	char y1, y2, u, v;
-	char *rgbLineBuffer;
+	unsigned int i, j;
+	int y1, y2, u, v;
+	int r, g, b;
+	unsigned char *rgbLineBuffer;
 
 	if (fourccPixelFormat != V4L2_PIX_FMT_YUYV) {
 		printf("Error: jpeg writer support YUYV only but input is %c%c%c%c\n", 
@@ -352,9 +350,14 @@ void jpegWrite(char *imageBuffer, int imageWidth, int imageHeight, int fourccPix
 		printf("Error: image width must be even but image width is %d\n", imageWidth);
 		return;
 	}
+	if (imageHeight <= 0 || bytesPerLine <= 0) {
+		printf("Error: invalid image dimensions (%d x %d), bytesPerLine=%d\n",
+				imageWidth, imageHeight, bytesPerLine);
+		return;
+	}
 
 	// Allocate RGB buffer, 3 bytes per pixel.
-	rgbLineBuffer = malloc(cinfo.image_width * 3);
+	rgbLineBuffer = malloc(imageWidth * 3);
 	if (rgbLineBuffer == NULL) {
 		printf("Error: allocate rgb buffer fails\n");
 		return;
@@ -363,6 +366,7 @@ void jpegWrite(char *imageBuffer, int imageWidth, int imageHeight, int fourccPix
 	outfile = fopen(fileName, "wb");
 	if (outfile == NULL) {
 		printf("Error: cannot create jpeg file\n");
+		free(rgbLineBuffer);
 		return;
 	}
 
@@ -390,13 +394,25 @@ void jpegWrite(char *imageBuffer, int imageWidth, int imageHeight, int fourccPix
 			u -= 128;
 			v -= 128;
 			// RGB for 1st pixel
-			rgbLineBuffer[j*3]     = y1 + (1.370705f * v);
-			rgbLineBuffer[(j*3)+1] = y1 - (0.698001f * v) - (0.337633f * u);
-			rgbLineBuffer[(j*3)+2] = y1 + (1.732446 * u);
+			r = y1 + (1.370705f * v);
+			g = y1 - (0.698001f * v) - (0.337633f * u);
+			b = y1 + (1.732446 * u);
+			if (r < 0) r = 0; else if (r > 255) r = 255;
+			if (g < 0) g = 0; else if (g > 255) g = 255;
+			if (b < 0) b = 0; else if (b > 255) b = 255;
+			rgbLineBuffer[j*3]     = r;
+			rgbLineBuffer[(j*3)+1] = g;
+			rgbLineBuffer[(j*3)+2] = b;
 			// RGB for 2nd pixel
-			rgbLineBuffer[(j*3)+3] = y2 + (1.370705f * v);
-			rgbLineBuffer[(j*3)+4] = y2 - (0.698001f * v) - (0.337633f * u);
-			rgbLineBuffer[(j*3)+5] = y2 + (1.732446 * u);
+			r = y2 + (1.370705f * v);
+			g = y2 - (0.698001f * v) - (0.337633f * u);
+			b = y2 + (1.732446 * u);
+			if (r < 0) r = 0; else if (r > 255) r = 255;
+			if (g < 0) g = 0; else if (g > 255) g = 255;
+			if (b < 0) b = 0; else if (b > 255) b = 255;
+			rgbLineBuffer[(j*3)+3] = r;
+			rgbLineBuffer[(j*3)+4] = g;
+			rgbLineBuffer[(j*3)+5] = b;
 		}
 		jpeg_write_scanlines(&cinfo, row_pointer, 1);
 	}
@@ -407,6 +423,4 @@ void jpegWrite(char *imageBuffer, int imageWidth, int imageHeight, int fourccPix
 	fclose(outfile);
 	return;
 }
-
-
 
